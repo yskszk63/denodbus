@@ -68,7 +68,8 @@ class DbusBoolean extends DbusType<boolean> {
   }
 
   async unmarshall(input: ReadableStreamBYOBReader): Promise<boolean> {
-    return unmarshallFixed(Uint8Array, input).then(v => v === 1);
+    const v = await unmarshallFixed(Uint8Array, input);
+    return v === 1;
   }
 }
 
@@ -180,6 +181,7 @@ class DbusArray<T> extends DbusType<T[]> {
   }
 }
 
+//deno-lint-ignore no-explicit-any
 class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
   // Mapped Tuple Type
   items: { [P in keyof T]: DbusType<T[P]> };
@@ -189,6 +191,7 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
   }
 }
 
+//deno-lint-ignore no-explicit-any
 class DbusVariant extends DbusType<any> {
 }
 
@@ -205,6 +208,7 @@ class DbusDictEntry<K, V> extends DbusType<[K, V]> {
 class DbusUnixFd extends DbusType<number> {
 }
 
+//deno-lint-ignore no-explicit-any
 type TypeOf<T extends DbusType<any>> = T['_output'];
 export type { TypeOf as infer }
 
@@ -272,6 +276,7 @@ export function array<T>(elementType: DbusType<T>): DbusArray<T> {
   return new DbusArray(elementType);
 }
 
+//deno-lint-ignore no-explicit-any
 export function struct<T extends [any, ...any[]]>(items: { [P in keyof T]: DbusType<T[P]> }): DbusStruct<T> {
   return new DbusStruct<T>(items);
 }

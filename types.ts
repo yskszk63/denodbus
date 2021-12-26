@@ -43,13 +43,9 @@ async function unmarshallText(alignment: 1 | 4, input: ReadableStreamBYOBReader)
 abstract class DbusType<Output> {
   readonly _output!: Output;
 
-  marshall(_val: Output, _out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    throw new Error('not implemented');
-  }
+  abstract marshall(_val: Output, _out: WritableStreamDefaultWriter<Uint8Array>): Promise<number>;
 
-  unmarshall(_input: ReadableStreamBYOBReader): Promise<Output> {
-    throw new Error('not implemented');
-  }
+  abstract unmarshall(_input: ReadableStreamBYOBReader): Promise<Output>;
 }
 
 class DbusByte extends DbusType<number> {
@@ -296,5 +292,7 @@ export function unixFd(): DbusUnixFd {
 }
 
 // ----
+/*
 const X = struct([string(), array(byte())]);
 type X = TypeOf<typeof X>;
+*/

@@ -1,35 +1,61 @@
-async function marshallFixed<T>(typedarray: { of: (b: T) => ArrayBufferView } , val: T, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+export const LITTLE_ENDIAN = 'l';
+
+export const BIG_ENDIAN = 'B';
+
+export type Endian = typeof LITTLE_ENDIAN | typeof BIG_ENDIAN;
+
+const nativeEndian = (() => {
+  const b = Uint8Array.of(0x12, 0x34);
+  switch (new Uint16Array(b.buffer)[0]) {
+    case 0x3412: return LITTLE_ENDIAN;
+    case 0x1234: return BIG_ENDIAN;
+    default: throw new Error();
+  }
+})();
+
+function convertEndian<V extends Uint8Array | ArrayBuffer>(endian: Endian, v: V): V {
+  if (endian !== nativeEndian) {
+    if (v instanceof ArrayBuffer) {
+      return new Uint8Array(v).reverse().buffer as V;
+    } else {
+      return v.reverse() as V;
+    }
+  }
+  return v;
+}
+
+async function marshallFixed<T>(endian: Endian, typedarray: { of: (b: T) => ArrayBufferView } , val: T, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
   const buf = typedarray.of(val);
-  await out.write(new Uint8Array(buf.buffer));
+  await out.write(convertEndian(endian, new Uint8Array(buf.buffer)));
   return buf.byteLength;
 }
 
-async function unmarshallFixed<R>(typedarray: (new (b: ArrayBuffer) => ArrayBufferView & ArrayLike<R>) & { BYTES_PER_ELEMENT: number }, input: ReadableStreamBYOBReader): Promise<R> {
+async function unmarshallFixed<V extends ArrayBufferView & ArrayLike<R> & { reverse(): V }, R>(endian: Endian, typedarray: (new (b: ArrayBuffer) => V) & { BYTES_PER_ELEMENT: number }, input: ReadableStreamBYOBReader): Promise<R> {
   const result = await input.read(new Uint8Array(new ArrayBuffer(typedarray.BYTES_PER_ELEMENT)));
   if (result.done) {
     throw new Error('unexpected EOF.');
   }
-  const buf = new typedarray(result.value.buffer);
+  const buf = new typedarray(convertEndian(endian, result.value.buffer));
   if (!buf.length) {
     throw new Error();
   }
   return buf[0];
 }
 
-async function marshallText(alignment: 1 | 4, text: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+async function marshallText(endian: Endian, alignment: 1 | 4, text: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
   const buf = new TextEncoder().encode(text);
   const len = buf.byteLength;
   const pad = (alignment - ((len + 1) % alignment) % alignment);
 
-  const n = await marshallFixed(Uint32Array, len, out);
+  const n = await marshallFixed(endian, Uint32Array, len, out);
   out.write(buf);
   out.write(new Uint8Array(1 + pad));
 
   return n + len + 1 + pad;
 }
 
-async function unmarshallText(alignment: 1 | 4, input: ReadableStreamBYOBReader): Promise<string> {
-  const len = await unmarshallFixed(Uint32Array, input);
+async function unmarshallText(endian: Endian, alignment: 1 | 4, input: ReadableStreamBYOBReader): Promise<string> {
+  const len = await unmarshallFixed(endian, Uint32Array, input) as number;
   const pad = (alignment - ((len + 1) % alignment) % alignment);
   const v = new Uint8Array(len + 1 + pad);
   const result = await input.read(v);
@@ -43,129 +69,128 @@ async function unmarshallText(alignment: 1 | 4, input: ReadableStreamBYOBReader)
 abstract class DbusType<Output> {
   readonly _output!: Output;
 
-  abstract marshall(_val: Output, _out: WritableStreamDefaultWriter<Uint8Array>): Promise<number>;
-
-  abstract unmarshall(_input: ReadableStreamBYOBReader): Promise<Output>;
+  //abstract marshall(endian: Endian, val: Output, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number>;
+  //abstract unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<Output>;
 }
 
 class DbusByte extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Uint8Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Uint8Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Uint8Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Uint8Array, input);
   }
 }
 
 class DbusBoolean extends DbusType<boolean> {
-  marshall(val: boolean, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Uint8Array, val ? 1 : 0, out);
+  marshall(endian: Endian, val: boolean, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Uint8Array, val ? 1 : 0, out);
   }
 
-  async unmarshall(input: ReadableStreamBYOBReader): Promise<boolean> {
-    const v = await unmarshallFixed(Uint8Array, input);
+  async unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<boolean> {
+    const v = await unmarshallFixed(endian, Uint8Array, input);
     return v === 1;
   }
 }
 
 class DbusInt16 extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Int16Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Int16Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Int16Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Int16Array, input);
   }
 }
 
 class DbusUint16 extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Uint16Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Uint16Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Uint16Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Uint16Array, input);
   }
 }
 
 class DbusInt32 extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Int32Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Int32Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Int32Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Int32Array, input);
   }
 }
 
 class DbusUint32 extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Uint32Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Uint32Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Uint32Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Uint32Array, input);
   }
 }
 
 class DbusInt64 extends DbusType<bigint> {
-  marshall(val: bigint, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(BigInt64Array, val, out);
+  marshall(endian: Endian, val: bigint, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, BigInt64Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<bigint> {
-    return unmarshallFixed(BigInt64Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
+    return unmarshallFixed(endian, BigInt64Array, input);
   }
 }
 
 class DbusUint64 extends DbusType<bigint> {
-  marshall(val: bigint, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(BigUint64Array, val, out);
+  marshall(endian: Endian, val: bigint, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, BigUint64Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<bigint> {
-    return unmarshallFixed(BigUint64Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
+    return unmarshallFixed(endian, BigUint64Array, input);
   }
 }
 
 class DbusDouble extends DbusType<number> {
-  marshall(val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallFixed(Float64Array, val, out);
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Float64Array, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(Float64Array, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Float64Array, input);
   }
 }
 
 class DbusString extends DbusType<string> {
-  marshall(val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallText(4, val, out);
+  marshall(endian: Endian, val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallText(endian, 4, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(4, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
+    return unmarshallText(endian, 4, input);
   }
 }
 
 class DbusObjectPath extends DbusType<string> {
-  marshall(val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallText(4, val, out);
+  marshall(endian: Endian, val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallText(endian, 4, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(4, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
+    return unmarshallText(endian, 4, input);
   }
 }
 
 class DbusSignature extends DbusType<string> {
-  marshall(val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    return marshallText(1, val, out);
+  marshall(endian: Endian, val: string, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallText(endian, 1, val, out);
   }
 
-  unmarshall(input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(1, input);
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
+    return unmarshallText(endian, 1, input);
   }
 }
 

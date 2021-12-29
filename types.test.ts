@@ -253,3 +253,28 @@ Deno.test("signature", async () => {
     }
   }
 });
+
+Deno.test("unix_fd", async () => {
+  const ty = t.unixFd();
+
+  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+    for (const v of [0, 1, 32, 512, 0xFFFF_FFFF]) {
+      const mem: Uint8Array[] = [];
+      const [r, w] = memStream(mem);
+
+      await ty.marshall(endian, v, w.getWriter());
+      const unmarshalled = await ty.unmarshall(
+        endian,
+        r.getReader({ mode: "byob" }),
+      );
+      assertEquals(unmarshalled, v);
+    }
+  }
+});
+
+Deno.test('message', async () => {
+  const mem: Uint8Array[] = [];
+  const [r, w] = memStream(mem);
+
+  t.marshall(t.LITTLE_ENDIAN, [t.byte(), t.byte(), t.byte(), t.byte(), t.uint32(), t.uint32(), t.array(t.struct([t.byte(), t.variant()]))], [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [] as [number, any][]], w.getWriter());
+});

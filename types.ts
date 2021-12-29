@@ -69,8 +69,8 @@ async function unmarshallText(endian: Endian, alignment: 1 | 4, input: ReadableS
 abstract class DbusType<Output> {
   readonly _output!: Output;
 
-  //abstract marshall(endian: Endian, val: Output, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number>;
-  //abstract unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<Output>;
+  abstract marshall(endian: Endian, val: Output, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number>;
+  abstract unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<Output>;
 }
 
 class DbusByte extends DbusType<number> {
@@ -200,6 +200,14 @@ class DbusArray<T> extends DbusType<T[]> {
     super();
     this.elementType = elementType;
   }
+
+  marshall(endian: Endian, val: T[], out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    throw new Error('not implemented.');
+  }
+
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T[]> {
+    throw new Error('not implemented.');
+  }
 }
 
 //deno-lint-ignore no-explicit-any
@@ -210,10 +218,25 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
     super();
     this.items = items;
   }
+
+  marshall(endian: Endian, val: T, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    throw new Error('not implemented.');
+  }
+
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T> {
+    throw new Error('not implemented.');
+  }
 }
 
 //deno-lint-ignore no-explicit-any
 class DbusVariant extends DbusType<any> {
+  marshall(endian: Endian, val: any, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    throw new Error('not implemented.');
+  }
+
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<any> {
+    throw new Error('not implemented.');
+  }
 }
 
 class DbusDictEntry<K, V> extends DbusType<[K, V]> {
@@ -224,9 +247,24 @@ class DbusDictEntry<K, V> extends DbusType<[K, V]> {
     this.key = key;
     this.val = val;
   }
+
+  marshall(endian: Endian, val: [K, V], out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    throw new Error('not implemented.');
+  }
+
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<[K, V]> {
+    throw new Error('not implemented.');
+  }
 }
 
 class DbusUnixFd extends DbusType<number> {
+  marshall(endian: Endian, val: number, out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    return marshallFixed(endian, Uint32Array, val, out);
+  }
+
+  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
+    return unmarshallFixed(endian, Uint32Array, input);
+  }
 }
 
 //deno-lint-ignore no-explicit-any
@@ -314,6 +352,22 @@ export function dictEntry<K, V>(key: DbusType<K>, val: DbusType<V>): DbusDictEnt
 const _unixFd = new DbusUnixFd();
 export function unixFd(): DbusUnixFd {
   return _unixFd;
+}
+
+export async function marshall<T extends [any, ...any[]]>(endian: Endian, types: { [P in keyof T]: DbusType<T[P]> }, values: T, output: WritableStreamDefaultWriter<Uint8Array>): Promise<void> {
+  for (let n = 0; n < types.length; n++) {
+    const t = types[n];
+    const v = values[n];
+    await t.marshall(endian, v, output);
+  }
+}
+
+export async function unmarshall<T extends [any, ...any[]]>(endian: Endian, types: { [P in keyof T]: DbusType<T[P]> }, input: ReadableStreamBYOBReader): Promise<T> {
+  const result = [];
+  for (const ty of types) {
+    result.push(await ty.unmarshall(endian, input));
+  }
+  return result as T;
 }
 
 // ----

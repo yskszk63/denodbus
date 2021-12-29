@@ -1,5 +1,6 @@
 import * as auth from './auth.ts';
 import * as types from './types.ts';
+import { getuid } from './getuid.ts';
 
 class Deferred<T> {
   #resolve: ((msg: T) => void) | null;
@@ -68,11 +69,11 @@ export class Client {
       const reader = r.getReader({ mode: 'byob' });
 
       await writer.write(Uint8Array.of(0));
-      const uid = '1000'; // FIXME
+      const uid = String(getuid());
       await auth.send({ command: 'AUTH', mechanism: 'EXTERNAL', initialResponse: uid }, writer);
       const maybeOk = await auth.recv(reader);
       if (maybeOk.command !== 'OK') {
-        throw new Error();
+        throw new Error(JSON.stringify(maybeOk));
       }
       const guid = maybeOk.guid;
 

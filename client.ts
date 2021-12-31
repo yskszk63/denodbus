@@ -83,6 +83,8 @@ export class Client {
         throw new Error();
       }
 
+      await auth.send({ command: 'BEGIN' }, writer);
+
       const waiters = new Map();
       const loopError = loop(waiters, reader);
       return new Client(w, waiters, loopError, guid);

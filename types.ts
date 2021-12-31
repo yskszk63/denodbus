@@ -201,8 +201,13 @@ class DbusArray<T> extends DbusType<T[]> {
     this.elementType = elementType;
   }
 
-  marshall(endian: Endian, val: T[], out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    throw new Error('not implemented.');
+  async marshall(endian: Endian, val: T[], out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
+    let n = await marshallFixed(endian, Uint32Array, val.length, out); // TODO length -> not elements, but size.
+    for (const v of val) {
+      n += await this.elementType.marshall(endian, v, out);
+    }
+    // alignment
+    return n
   }
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T[]> {

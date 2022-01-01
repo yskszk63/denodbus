@@ -1,3 +1,5 @@
+import limit from './limit.ts';
+
 export const LITTLE_ENDIAN = 'l';
 
 export const BIG_ENDIAN = 'B';
@@ -202,16 +204,35 @@ class DbusArray<T> extends DbusType<T[]> {
   }
 
   async marshall(endian: Endian, val: T[], out: WritableStreamDefaultWriter<Uint8Array>): Promise<number> {
-    let n = await marshallFixed(endian, Uint32Array, val.length, out); // TODO length -> not elements, but size.
+    let len = 0;
+    const dummy = new WritableStream().getWriter();
+    for (const v of val) {
+      len += await this.elementType.marshall(endian, v, dummy);
+    }
+
+    let n = await marshallFixed(endian, Uint32Array, len, out);
     for (const v of val) {
       n += await this.elementType.marshall(endian, v, out);
     }
-    // alignment
+    // TODO alignment
     return n
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T[]> {
-    throw new Error('not implemented.');
+  async unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T[]> {
+    let remaining = await unmarshallFixed(endian, Uint32Array, input) as number;
+
+    const [stream, info] = limit(input, remaining);
+    const reader = stream.getReader({mode:'byob'});
+    try {
+      const result = [];
+      while (info.hasRemaining()) {
+        result.push(await this.elementType.unmarshall(endian, reader));
+      }
+      // TODO alignment
+      return result;
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 

@@ -96,7 +96,7 @@ async function unmarshallText(
   return new TextDecoder().decode(result.value.subarray(0, len));
 }
 
-abstract class DbusType<Output> {
+export abstract class DbusType<Output> {
   readonly _output!: Output;
 
   abstract marshall(
@@ -108,6 +108,7 @@ abstract class DbusType<Output> {
     endian: Endian,
     input: ReadableStreamBYOBReader,
   ): Promise<Output>;
+  abstract signature(): string;
 }
 
 class DbusByte extends DbusType<number> {
@@ -121,6 +122,10 @@ class DbusByte extends DbusType<number> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Uint8Array, input);
+  }
+
+  signature(): string {
+    return "y";
   }
 }
 
@@ -140,6 +145,10 @@ class DbusBoolean extends DbusType<boolean> {
     const v = await unmarshallFixed(endian, Uint8Array, input);
     return v === 1;
   }
+
+  signature(): string {
+    return "b";
+  }
 }
 
 class DbusInt16 extends DbusType<number> {
@@ -153,6 +162,10 @@ class DbusInt16 extends DbusType<number> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Int16Array, input);
+  }
+
+  signature(): string {
+    return "n";
   }
 }
 
@@ -168,6 +181,10 @@ class DbusUint16 extends DbusType<number> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Uint16Array, input);
   }
+
+  signature(): string {
+    return "q";
+  }
 }
 
 class DbusInt32 extends DbusType<number> {
@@ -181,6 +198,10 @@ class DbusInt32 extends DbusType<number> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Int32Array, input);
+  }
+
+  signature(): string {
+    return "i";
   }
 }
 
@@ -196,6 +217,10 @@ class DbusUint32 extends DbusType<number> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Uint32Array, input);
   }
+
+  signature(): string {
+    return "u";
+  }
 }
 
 class DbusInt64 extends DbusType<bigint> {
@@ -209,6 +234,10 @@ class DbusInt64 extends DbusType<bigint> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
     return unmarshallFixed(endian, BigInt64Array, input);
+  }
+
+  signature(): string {
+    return "x";
   }
 }
 
@@ -224,6 +253,10 @@ class DbusUint64 extends DbusType<bigint> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
     return unmarshallFixed(endian, BigUint64Array, input);
   }
+
+  signature(): string {
+    return "t";
+  }
 }
 
 class DbusDouble extends DbusType<number> {
@@ -237,6 +270,10 @@ class DbusDouble extends DbusType<number> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Float64Array, input);
+  }
+
+  signature(): string {
+    return "d";
   }
 }
 
@@ -252,6 +289,10 @@ class DbusString extends DbusType<string> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
     return unmarshallText(endian, 4, input);
   }
+
+  signature(): string {
+    return "s";
+  }
 }
 
 class DbusObjectPath extends DbusType<string> {
@@ -266,6 +307,10 @@ class DbusObjectPath extends DbusType<string> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
     return unmarshallText(endian, 4, input);
   }
+
+  signature(): string {
+    return "o";
+  }
 }
 
 class DbusSignature extends DbusType<string> {
@@ -279,6 +324,10 @@ class DbusSignature extends DbusType<string> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
     return unmarshallText(endian, 1, input);
+  }
+
+  signature(): string {
+    return "g";
   }
 }
 
@@ -327,6 +376,10 @@ class DbusArray<T> extends DbusType<T[]> {
       reader.releaseLock();
     }
   }
+
+  signature(): string {
+    return `a${this.elementType.signature()}`;
+  }
 }
 
 //deno-lint-ignore no-explicit-any
@@ -349,20 +402,31 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T> {
     throw new Error("not implemented.");
   }
+
+  signature(): string {
+    return `(${this.items.map((v) => v.signature()).join("")})`;
+  }
 }
 
 //deno-lint-ignore no-explicit-any
-class DbusVariant extends DbusType<any> {
+class DbusVariant extends DbusType<[DbusType<any>, any]> {
   marshall(
     endian: Endian,
-    val: any,
+    [ty, val]: [DbusType<any>, any],
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
     throw new Error("not implemented.");
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<any> {
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+  ): Promise<[DbusType<any>, any]> {
     throw new Error("not implemented.");
+  }
+
+  signature(): string {
+    return "v";
   }
 }
 
@@ -386,6 +450,10 @@ class DbusDictEntry<K, V> extends DbusType<[K, V]> {
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<[K, V]> {
     throw new Error("not implemented.");
   }
+
+  signature(): string {
+    return `{${this.key.signature()}${this.val.signature()}}`;
+  }
 }
 
 class DbusUnixFd extends DbusType<number> {
@@ -399,6 +467,10 @@ class DbusUnixFd extends DbusType<number> {
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
     return unmarshallFixed(endian, Uint32Array, input);
+  }
+
+  signature(): string {
+    return "h";
   }
 }
 
@@ -492,6 +564,62 @@ export function dictEntry<K, V>(
 const _unixFd = new DbusUnixFd();
 export function unixFd(): DbusUnixFd {
   return _unixFd;
+}
+
+export function parseSignature(
+  sig: string,
+  ctx: { pos: number } = { pos: 0 },
+): DbusType<any> {
+  const h = sig[ctx.pos++];
+  switch (h) {
+    case "y":
+      return byte();
+    case "b":
+      return boolean();
+    case "n":
+      return int16();
+    case "q":
+      return uint16();
+    case "i":
+      return int32();
+    case "u":
+      return uint32();
+    case "x":
+      return int64();
+    case "t":
+      return uint64();
+    case "d":
+      return double();
+    case "s":
+      return string();
+    case "o":
+      return objectPath();
+    case "g":
+      return signature();
+    case "v":
+      return variant();
+    case "h":
+      return unixFd();
+    case "a":
+      return array(parseSignature(sig, ctx));
+    case "(": {
+      const items = [parseSignature(sig, ctx)];
+      while (sig[ctx.pos] !== ")") {
+        items.push(parseSignature(sig, ctx));
+      }
+      ctx.pos++;
+      return struct(items as [DbusType<any>, ...DbusType<any>[]]);
+    }
+    case "{": {
+      const key = parseSignature(sig, ctx);
+      const val = parseSignature(sig, ctx);
+      if (sig[ctx.pos++] !== "}") {
+        throw new Error();
+      }
+      return dictEntry(key, val);
+    }
+  }
+  throw new Error();
 }
 
 export async function marshall<T extends [any, ...any[]]>(

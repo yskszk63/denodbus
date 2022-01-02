@@ -272,6 +272,57 @@ Deno.test("unix_fd", async () => {
   }
 });
 
+Deno.test("signature", () => {
+  const tests = [
+    ["y", t.byte()],
+    ["b", t.boolean()],
+    ["n", t.int16()],
+    ["q", t.uint16()],
+    ["i", t.int32()],
+    ["u", t.uint32()],
+    ["x", t.int64()],
+    ["t", t.uint64()],
+    ["d", t.double()],
+    ["s", t.string()],
+    ["o", t.objectPath()],
+    ["g", t.signature()],
+    ["h", t.unixFd()],
+    ["ay", t.array(t.byte())],
+    ["(bnq)", t.struct([t.boolean(), t.int16(), t.uint16()])],
+    ["a{yv}", t.array(t.dictEntry(t.byte(), t.variant()))],
+  ] as [string, t.DbusType<any>][];
+
+  for (const [expect, target] of tests) {
+    assertEquals(expect, target.signature());
+  }
+});
+
+Deno.test("signature2", () => {
+  const tests = [
+    "y",
+    "b",
+    "n",
+    "q",
+    "i",
+    "u",
+    "x",
+    "t",
+    "d",
+    "s",
+    "o",
+    "g",
+    "h",
+    "ay",
+    "(bnq)",
+    "a{yv}",
+  ];
+
+  for (const sig of tests) {
+    const ty = t.parseSignature(sig);
+    assertEquals(sig, ty.signature());
+  }
+});
+
 Deno.test("message", async () => {
   const mem: Uint8Array[] = [];
   const [r, w] = memStream(mem);

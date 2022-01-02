@@ -272,9 +272,22 @@ Deno.test("unix_fd", async () => {
   }
 });
 
-Deno.test('message', async () => {
+Deno.test("message", async () => {
   const mem: Uint8Array[] = [];
   const [r, w] = memStream(mem);
 
-  t.marshall(t.LITTLE_ENDIAN, [t.byte(), t.byte(), t.byte(), t.byte(), t.uint32(), t.uint32(), t.array(t.struct([t.byte(), t.variant()]))], [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [] as [number, any][]], w.getWriter());
+  t.marshall(
+    t.LITTLE_ENDIAN,
+    [
+      t.byte(),
+      t.byte(),
+      t.byte(),
+      t.byte(),
+      t.uint32(),
+      t.uint32(),
+      t.array(t.struct([t.byte(), t.variant()])),
+    ],
+    [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [] as [number, any][]],
+    w.getWriter(),
+  );
 });

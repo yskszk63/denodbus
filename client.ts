@@ -1,12 +1,15 @@
-import * as auth from './auth.ts';
-import * as types from './types.ts';
-import { getuid } from './getuid.ts';
+import * as auth from "./auth.ts";
+import * as types from "./types.ts";
+import { getuid } from "./getuid.ts";
 
 class Deferred<T> {
   #resolve: ((msg: T) => void) | null;
   #reject: ((cause: any) => void) | null;
   promise: Promise<T>;
-  #pending: null | { type: 'resolve', value: T } | { type: 'reject', value: any };
+  #pending: null | { type: "resolve"; value: T } | {
+    type: "reject";
+    value: any;
+  };
 
   constructor() {
     const that = this;
@@ -16,9 +19,9 @@ class Deferred<T> {
     this.promise = new Promise((resolve, reject) => {
       if (that.#pending) {
         switch (that.#pending.type) {
-          case 'resolve':
+          case "resolve":
             return resolve(that.#pending.value);
-          case 'reject':
+          case "reject":
             return reject(that.#pending.value);
         }
       }
@@ -29,7 +32,7 @@ class Deferred<T> {
 
   resolve(msg: T) {
     if (!this.#resolve) {
-      this.#pending = { type: 'resolve', value: msg };
+      this.#pending = { type: "resolve", value: msg };
       return;
     }
     this.#resolve(msg);
@@ -37,20 +40,23 @@ class Deferred<T> {
 
   reject(cause: any) {
     if (!this.#reject) {
-      this.#pending = { type: 'reject', value: cause };
+      this.#pending = { type: "reject", value: cause };
       return;
     }
     this.#reject(cause);
   }
 }
 
-async function loop(waiters: Map<number, Deferred<unknown>>, readable: ReadableStreamBYOBReader): Promise<never> {
+async function loop(
+  waiters: Map<number, Deferred<unknown>>,
+  readable: ReadableStreamBYOBReader,
+): Promise<never> {
   const tyendian = types.byte();
 
   while (true) {
     const endian = await tyendian.unmarshall(types.LITTLE_ENDIAN, readable);
     console.log(endian);
-    throw new Error('not implemented.');
+    throw new Error("not implemented.");
   }
 }
 
@@ -66,24 +72,28 @@ export class Client {
 
     const writer = w.getWriter();
     try {
-      const reader = r.getReader({ mode: 'byob' });
+      const reader = r.getReader({ mode: "byob" });
 
       await writer.write(Uint8Array.of(0));
       const uid = String(getuid());
-      await auth.send({ command: 'AUTH', mechanism: 'EXTERNAL', initialResponse: uid }, writer);
+      await auth.send({
+        command: "AUTH",
+        mechanism: "EXTERNAL",
+        initialResponse: uid,
+      }, writer);
       const maybeOk = await auth.recv(reader);
-      if (maybeOk.command !== 'OK') {
+      if (maybeOk.command !== "OK") {
         throw new Error(JSON.stringify(maybeOk));
       }
       const guid = maybeOk.guid;
 
-      await auth.send({ command: 'NEGOTIATE_UNIX_FD' }, writer);
+      await auth.send({ command: "NEGOTIATE_UNIX_FD" }, writer);
       const msg = await auth.recv(reader);
-      if (msg.command !== 'AGREE_UNIX_FD') {
+      if (msg.command !== "AGREE_UNIX_FD") {
         throw new Error();
       }
 
-      await auth.send({ command: 'BEGIN' }, writer);
+      await auth.send({ command: "BEGIN" }, writer);
 
       const waiters = new Map();
       const loopError = loop(waiters, reader);
@@ -93,7 +103,12 @@ export class Client {
     }
   }
 
-  constructor(w: WritableStream<Uint8Array>, waiters: Map<number, Deferred<unknown>>, loopError: Promise<never>, guid: Uint8Array) {
+  constructor(
+    w: WritableStream<Uint8Array>,
+    waiters: Map<number, Deferred<unknown>>,
+    loopError: Promise<never>,
+    guid: Uint8Array,
+  ) {
     this.#writable = w;
     this.#guid = guid;
     this.#waiters = waiters;
@@ -101,32 +116,42 @@ export class Client {
   }
 }
 
-type UnixAddress = { type: 'unix' } & ({ path: string } | { abstract: string }) & Record<string, string>;
+type UnixAddress =
+  & { type: "unix" }
+  & ({ path: string } | { abstract: string })
+  & Record<string, string>;
 
 type Address = UnixAddress;
 
 function parseUnixAddress(rest: string): UnixAddress {
-  const keyval = rest.split(",").map(v => v.split('=')).reduce((o, [k, v]) => ({[k]: v, ...o}), {});
+  const keyval = rest.split(",").map((v) => v.split("=")).reduce(
+    (o, [k, v]) => ({ [k]: v, ...o }),
+    {},
+  );
   if (!("path" in keyval) && !("abstract" in keyval)) {
     throw new Error();
   }
   if ("path" in keyval && "abstract" in keyval) {
     throw new Error();
   }
-  return { type: 'unix', ...keyval } as UnixAddress;
+  return { type: "unix", ...keyval } as UnixAddress;
 }
 
 function parseAddress(addr: string): Address {
-  const [prefix, rest] = addr.split(':', 2);
+  const [prefix, rest] = addr.split(":", 2);
   switch (prefix) {
-    case "unix": return parseUnixAddress(rest);
-    default: throw new Error();
+    case "unix":
+      return parseUnixAddress(rest);
+    default:
+      throw new Error();
   }
 }
 
-async function connectUnix(addr: UnixAddress): Promise<[WritableStream<Uint8Array>, ReadableStream<Uint8Array>]> {
+async function connectUnix(
+  addr: UnixAddress,
+): Promise<[WritableStream<Uint8Array>, ReadableStream<Uint8Array>]> {
   const path = addr.path ? addr.path : `\0${addr.abstract}`;
-  const conn = await Deno.connect({ transport: 'unix', path, });
+  const conn = await Deno.connect({ transport: "unix", path });
 
   const w = new WritableStream({
     async write(chunk) {
@@ -136,7 +161,9 @@ async function connectUnix(addr: UnixAddress): Promise<[WritableStream<Uint8Arra
   const r = new ReadableStream({
     async pull(controller) {
       if (controller.byobRequest && controller.byobRequest.view) {
-        const n = await conn.read(new Uint8Array(controller.byobRequest.view.buffer));
+        const n = await conn.read(
+          new Uint8Array(controller.byobRequest.view.buffer),
+        );
         if (n === null) {
           controller.close();
         } else {
@@ -153,15 +180,19 @@ async function connectUnix(addr: UnixAddress): Promise<[WritableStream<Uint8Arra
         controller.enqueue(buf.subarray(0, n));
       }
     },
-    type: 'bytes',
+    type: "bytes",
   });
 
   return [w, r];
 }
 
-async function connect(addr: Address): Promise<[WritableStream<Uint8Array>, ReadableStream<Uint8Array>]> {
+async function connect(
+  addr: Address,
+): Promise<[WritableStream<Uint8Array>, ReadableStream<Uint8Array>]> {
   switch (addr.type) {
-    case "unix": return connectUnix(addr);
-    default: throw new Error('not implemented');
+    case "unix":
+      return connectUnix(addr);
+    default:
+      throw new Error("not implemented");
   }
 }

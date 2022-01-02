@@ -1,3 +1,3 @@
-import { Client } from '../client.ts';
+import { Client } from "../client.ts";
 
-const client = await Client.connect('unix:path=/run/user/1000/bus');
+const client = await Client.connect("unix:path=/run/user/1000/bus");

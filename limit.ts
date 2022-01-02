@@ -1,8 +1,11 @@
 type ExportInfo = {
   hasRemaining(): boolean;
-}
+};
 
-export default function limit(upstream: ReadableStreamBYOBReader, max: number): [ReadableStream<Uint8Array>, ExportInfo] {
+export default function limit(
+  upstream: ReadableStreamBYOBReader,
+  max: number,
+): [ReadableStream<Uint8Array>, ExportInfo] {
   let remaining = max;
   const stream = new ReadableStream({
     async pull(controller) {
@@ -13,7 +16,13 @@ export default function limit(upstream: ReadableStreamBYOBReader, max: number): 
       if (controller.byobRequest && controller.byobRequest.view) {
         // TODO check multiply
         const view = controller.byobRequest.view;
-        const result = await upstream.read(new Uint8Array(view.buffer, view.byteOffset, Math.min(view.byteLength, remaining)));
+        const result = await upstream.read(
+          new Uint8Array(
+            view.buffer,
+            view.byteOffset,
+            Math.min(view.byteLength, remaining),
+          ),
+        );
         if (result.done) {
           controller.close();
           return;
@@ -32,8 +41,8 @@ export default function limit(upstream: ReadableStreamBYOBReader, max: number): 
       remaining -= result.value.byteLength;
       controller.enqueue(result.value);
     },
-    type: 'bytes',
+    type: "bytes",
   });
 
-  return [stream, { hasRemaining: () =>  remaining > 0 }];
+  return [stream, { hasRemaining: () => remaining > 0 }];
 }

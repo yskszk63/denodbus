@@ -1,14 +1,16 @@
 import { assertEquals } from "https://deno.land/std@0.118.0/testing/asserts.ts";
 
-import limit from './limit.ts';
+import limit from "./limit.ts";
 
-Deno.test('limit', async () => {
+Deno.test("limit", async () => {
   const original = new ReadableStream({
     pull(controller) {
       if (controller.byobRequest?.view) {
         const view = controller.byobRequest.view;
         const len = view.byteLength;
-        new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(Uint8Array.from({ length: len }, () => 1));
+        new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(
+          Uint8Array.from({ length: len }, () => 1),
+        );
         controller.byobRequest.respond(len);
         return;
       }
@@ -16,10 +18,10 @@ Deno.test('limit', async () => {
       const buf = Uint8Array.from({ length: 512 }, () => 1);
       controller.enqueue(buf);
     },
-    type: 'bytes',
+    type: "bytes",
   });
 
-  const [limited] = limit(original.getReader({mode:'byob'}), 32);
+  const [limited] = limit(original.getReader({ mode: "byob" }), 32);
   const reader = limited.getReader();
   try {
     const result = await reader.read();

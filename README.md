@@ -1,6 +1,6 @@
 # denodbus
 
-A dbus client library implemented using Deno.
+A D-Bus client library implemented using Deno.
 
 <https://dbus.freedesktop.org/doc/dbus-specification.html>
 

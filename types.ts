@@ -1,10 +1,80 @@
-import limit from "./limit.ts";
-
 export const LITTLE_ENDIAN = "l";
 
 export const BIG_ENDIAN = "B";
 
 export type Endian = typeof LITTLE_ENDIAN | typeof BIG_ENDIAN;
+
+class ParseContext {
+  pos: number;
+  constructor() {
+    this.pos = 0;
+  }
+
+  async alignRead(
+    reader: ReadableStreamBYOBReader,
+    alignment: number,
+  ): Promise<void> {
+    const pad = (alignment - ((this.pos) % alignment)) % alignment;
+    let rest = pad;
+    while (rest > 0) {
+      const r = await reader.read(new Uint8Array(pad));
+      if (r.done) {
+        throw new Error("unexpected EOF.");
+      }
+      rest -= r.value.byteLength;
+    }
+    this.pos += pad;
+  }
+
+  async alignWrite(
+    writer: WritableStreamDefaultWriter<Uint8Array>,
+    alignment: number,
+  ): Promise<void> {
+    const pad = (alignment - ((this.pos) % alignment)) % alignment;
+    await writer.write(new Uint8Array(pad));
+    this.pos += pad;
+  }
+
+  async readExact(
+    reader: ReadableStreamBYOBReader,
+    buf: Uint8Array,
+    alignment: number | null,
+  ): Promise<Uint8Array> {
+    if (alignment) {
+      await this.alignRead(reader, alignment);
+    }
+
+    const off = buf.byteOffset;
+    const len = buf.byteLength;
+    let b = buf;
+    while (b.byteOffset < off + len) {
+      const r = await reader.read(b);
+      if (r.done) {
+        throw new Error("unexpected EOF.");
+      }
+      const value = r.value;
+      const nextOff = value.byteOffset + value.byteLength;
+      const nextLen = len - (nextOff - off);
+      b = new Uint8Array(value.buffer, nextOff, nextLen);
+    }
+    this.pos += len;
+    return new Uint8Array(b.buffer, off, len);
+  }
+
+  async writeAll(
+    writer: WritableStreamDefaultWriter<Uint8Array>,
+    buf: Uint8Array,
+    alignment: number | null,
+  ): Promise<void> {
+    if (alignment) {
+      await this.alignWrite(writer, alignment);
+    }
+
+    const len = buf.byteLength;
+    await writer.write(buf);
+    this.pos += len;
+  }
+}
 
 const nativeEndian = (() => {
   const b = Uint8Array.of(0x12, 0x34);
@@ -32,35 +102,19 @@ function convertEndian<V extends Uint8Array | ArrayBuffer>(
   return v;
 }
 
-async function readExact(
-  reader: ReadableStreamBYOBReader,
-  buf: Uint8Array,
-): Promise<Uint8Array> {
-  const off = buf.byteOffset;
-  const len = buf.byteLength;
-  let b = buf;
-  while (b.byteOffset < off + len) {
-    const r = await reader.read(b);
-    if (r.done) {
-      throw new Error("unexpected EOF.");
-    }
-    const value = r.value;
-    const nextOff = value.byteOffset + value.byteLength;
-    const nextLen = len - (nextOff - off);
-    b = new Uint8Array(value.buffer, nextOff, nextLen);
-  }
-  return new Uint8Array(b.buffer, off, len);
-}
-
 async function marshallFixed<T>(
   endian: Endian,
-  typedarray: { of: (b: T) => ArrayBufferView },
+  typedarray: { of: (b: T) => ArrayBufferView; BYTES_PER_ELEMENT: number },
   val: T,
   out: WritableStreamDefaultWriter<Uint8Array>,
-): Promise<number> {
+  ctx: ParseContext,
+): Promise<void> {
   const buf = typedarray.of(val);
-  await out.write(convertEndian(endian, new Uint8Array(buf.buffer)));
-  return buf.byteLength;
+  await ctx.writeAll(
+    out,
+    convertEndian(endian, new Uint8Array(buf.buffer)),
+    typedarray.BYTES_PER_ELEMENT,
+  );
 }
 
 async function unmarshallFixed<
@@ -70,10 +124,12 @@ async function unmarshallFixed<
   endian: Endian,
   typedarray: (new (b: ArrayBuffer) => V) & { BYTES_PER_ELEMENT: number },
   input: ReadableStreamBYOBReader,
+  ctx: ParseContext,
 ): Promise<R> {
-  const value = await readExact(
+  const value = await ctx.readExact(
     input,
     new Uint8Array(typedarray.BYTES_PER_ELEMENT),
+    typedarray.BYTES_PER_ELEMENT,
   );
   const buf = new typedarray(convertEndian(endian, value.buffer));
   if (!buf.length) {
@@ -84,31 +140,27 @@ async function unmarshallFixed<
 
 async function marshallText(
   endian: Endian,
-  alignment: 1 | 4,
   lengthType: DbusType<number>,
   text: string,
   out: WritableStreamDefaultWriter<Uint8Array>,
-): Promise<number> {
+  ctx: ParseContext,
+): Promise<void> {
   const buf = new TextEncoder().encode(text);
   const len = buf.byteLength;
-  const pad = (alignment - ((len + 1) % alignment)) % alignment;
 
-  const n = await lengthType.marshall(endian, len, out);
-  out.write(buf);
-  out.write(new Uint8Array(1 + pad));
-
-  return n + len + 1 + pad;
+  await lengthType.marshall(endian, len, out, ctx);
+  await ctx.writeAll(out, buf, null);
+  await ctx.writeAll(out, Uint8Array.of(0), null);
 }
 
 async function unmarshallText(
   endian: Endian,
-  alignment: 1 | 4,
   lengthType: DbusType<number>,
   input: ReadableStreamBYOBReader,
+  ctx: ParseContext,
 ): Promise<string> {
-  const len = await lengthType.unmarshall(endian, input);
-  const pad = (alignment - ((len + 1) % alignment)) % alignment;
-  const value = await readExact(input, new Uint8Array(len + 1 + pad));
+  const len = await lengthType.unmarshall(endian, input, ctx);
+  const value = await ctx.readExact(input, new Uint8Array(len + 1), null);
   return new TextDecoder().decode(value.subarray(0, len));
 }
 
@@ -119,10 +171,13 @@ export abstract class DbusType<Output> {
     endian: Endian,
     val: Output,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number>;
+    ctx?: ParseContext,
+  ): Promise<void>;
+
   abstract unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
   ): Promise<Output>;
   abstract signature(): string;
 }
@@ -132,12 +187,28 @@ class DbusByte extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Uint8Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Uint8Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Uint8Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Uint8Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -150,15 +221,28 @@ class DbusBoolean extends DbusType<boolean> {
     endian: Endian,
     val: boolean,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Uint8Array, val ? 1 : 0, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Uint32Array,
+      val ? 1 : 0,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
   async unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
   ): Promise<boolean> {
-    const v = await unmarshallFixed(endian, Uint8Array, input);
+    const v = await unmarshallFixed(
+      endian,
+      Uint32Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
     return v === 1;
   }
 
@@ -172,12 +256,28 @@ class DbusInt16 extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Int16Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Int16Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Int16Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Int16Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -190,12 +290,28 @@ class DbusUint16 extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Uint16Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Uint16Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Uint16Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Uint16Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -208,12 +324,28 @@ class DbusInt32 extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Int32Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Int32Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Int32Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Int32Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -226,12 +358,28 @@ class DbusUint32 extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Uint32Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Uint32Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Uint32Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Uint32Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -244,12 +392,28 @@ class DbusInt64 extends DbusType<bigint> {
     endian: Endian,
     val: bigint,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, BigInt64Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      BigInt64Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
-    return unmarshallFixed(endian, BigInt64Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<bigint> {
+    return unmarshallFixed(
+      endian,
+      BigInt64Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -262,12 +426,28 @@ class DbusUint64 extends DbusType<bigint> {
     endian: Endian,
     val: bigint,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, BigUint64Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      BigUint64Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<bigint> {
-    return unmarshallFixed(endian, BigUint64Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<bigint> {
+    return unmarshallFixed(
+      endian,
+      BigUint64Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -280,12 +460,28 @@ class DbusDouble extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Float64Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Float64Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Float64Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Float64Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -298,12 +494,17 @@ class DbusString extends DbusType<string> {
     endian: Endian,
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallText(endian, 4, uint32(), val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallText(endian, uint32(), val, out, ctx ?? new ParseContext());
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 4, uint32(), input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<string> {
+    return unmarshallText(endian, uint32(), input, ctx ?? new ParseContext());
   }
 
   signature(): string {
@@ -316,12 +517,17 @@ class DbusObjectPath extends DbusType<string> {
     endian: Endian,
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallText(endian, 4, uint32(), val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallText(endian, uint32(), val, out, ctx ?? new ParseContext());
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 4, uint32(), input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<string> {
+    return unmarshallText(endian, uint32(), input, ctx ?? new ParseContext());
   }
 
   signature(): string {
@@ -334,12 +540,17 @@ class DbusSignature extends DbusType<string> {
     endian: Endian,
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallText(endian, 1, byte(), val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallText(endian, byte(), val, out, ctx ?? new ParseContext());
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 1, byte(), input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<string> {
+    return unmarshallText(endian, byte(), input, ctx ?? new ParseContext());
   }
 
   signature(): string {
@@ -358,39 +569,36 @@ class DbusArray<T> extends DbusType<T[]> {
     endian: Endian,
     val: T[],
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    let len = 0;
+    ctx?: ParseContext,
+  ): Promise<void> {
+    const dummyCtx = new ParseContext();
     const dummy = new WritableStream().getWriter();
     for (const v of val) {
-      len += await this.elementType.marshall(endian, v, dummy);
+      await this.elementType.marshall(endian, v, dummy, dummyCtx);
     }
 
-    let n = await marshallFixed(endian, Uint32Array, len, out);
+    ctx = ctx ?? new ParseContext();
+    await uint32().marshall(endian, dummyCtx.pos, out, ctx);
     for (const v of val) {
-      n += await this.elementType.marshall(endian, v, out);
+      await this.elementType.marshall(endian, v, out, ctx);
     }
-    // TODO alignment
-    return n;
   }
 
   async unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
   ): Promise<T[]> {
-    let remaining = await unmarshallFixed(endian, Uint32Array, input) as number;
+    ctx = ctx ?? new ParseContext();
+    let remaining = await uint32().unmarshall(endian, input, ctx);
 
-    const [stream, info] = limit(input, remaining);
-    const reader = stream.getReader({ mode: "byob" });
-    try {
-      const result = [];
-      while (info.hasRemaining()) {
-        result.push(await this.elementType.unmarshall(endian, reader));
-      }
-      // TODO alignment
-      return result;
-    } finally {
-      reader.releaseLock();
+    const result = [];
+    while (remaining > 0) {
+      const n = ctx.pos;
+      result.push(await this.elementType.unmarshall(endian, input, ctx));
+      remaining -= ctx.pos - n;
     }
+    return result;
   }
 
   signature(): string {
@@ -411,21 +619,27 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
     endian: Endian,
     val: T,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    let len = 0;
+    ctx?: ParseContext,
+  ): Promise<void> {
+    ctx = ctx ?? new ParseContext();
+    await ctx.alignWrite(out, 8);
+
     for (let i = 0; i < this.items.length; i++) {
-      len += await this.items[i].marshall(endian, val[i], out);
+      await this.items[i].marshall(endian, val[i], out, ctx);
     }
-    return len;
   }
 
   async unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
   ): Promise<T> {
-    let result = [];
+    ctx = ctx ?? new ParseContext();
+    await ctx.alignRead(input, 8);
+
+    const result = [];
     for (let i = 0; i < this.items.length; i++) {
-      result.push(await this.items[i].unmarshall(endian, input));
+      result.push(await this.items[i].unmarshall(endian, input, ctx));
     }
     return result as T;
   }
@@ -439,21 +653,27 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
 class DbusVariant extends DbusType<[DbusType<any>, any]> {
   async marshall(
     endian: Endian,
+    //deno-lint-ignore no-explicit-any
     [ty, val]: [DbusType<any>, any],
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    let n = await signature().marshall(endian, ty.signature(), out);
-    n += await ty.marshall(endian, val, out);
-    // TODO alignment?
-    return n;
+    ctx?: ParseContext,
+  ): Promise<void> {
+    ctx = ctx ?? new ParseContext();
+
+    await signature().marshall(endian, ty.signature(), out, ctx);
+    await ty.marshall(endian, val, out, ctx);
   }
 
   async unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+    //deno-lint-ignore no-explicit-any
   ): Promise<[DbusType<any>, any]> {
-    const ty = parseSignature(await signature().unmarshall(endian, input));
-    const val = await ty.unmarshall(endian, input);
+    ctx = ctx ?? new ParseContext();
+
+    const ty = parseSignature(await signature().unmarshall(endian, input, ctx));
+    const val = await ty.unmarshall(endian, input, ctx);
     return [ty, val];
   }
 
@@ -475,11 +695,16 @@ class DbusDictEntry<K, V> extends DbusType<[K, V]> {
     endian: Endian,
     val: [K, V],
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
+    ctx?: ParseContext,
+  ): Promise<void> {
     throw new Error("not implemented.");
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<[K, V]> {
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    pos?: ParseContext,
+  ): Promise<[K, V]> {
     throw new Error("not implemented.");
   }
 
@@ -493,12 +718,28 @@ class DbusUnixFd extends DbusType<number> {
     endian: Endian,
     val: number,
     out: WritableStreamDefaultWriter<Uint8Array>,
-  ): Promise<number> {
-    return marshallFixed(endian, Uint32Array, val, out);
+    ctx?: ParseContext,
+  ): Promise<void> {
+    return marshallFixed(
+      endian,
+      Uint32Array,
+      val,
+      out,
+      ctx ?? new ParseContext(),
+    );
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<number> {
-    return unmarshallFixed(endian, Uint32Array, input);
+  unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+    ctx?: ParseContext,
+  ): Promise<number> {
+    return unmarshallFixed(
+      endian,
+      Uint32Array,
+      input,
+      ctx ?? new ParseContext(),
+    );
   }
 
   signature(): string {
@@ -601,6 +842,7 @@ export function unixFd(): DbusUnixFd {
 export function parseSignature(
   sig: string,
   ctx: { pos: number } = { pos: 0 },
+  //deno-lint-ignore no-explicit-any
 ): DbusType<any> {
   const h = sig[ctx.pos++];
   switch (h) {
@@ -640,6 +882,7 @@ export function parseSignature(
         items.push(parseSignature(sig, ctx));
       }
       ctx.pos++;
+      //deno-lint-ignore no-explicit-any
       return struct(items as [DbusType<any>, ...DbusType<any>[]]);
     }
     case "{": {
@@ -655,27 +898,33 @@ export function parseSignature(
   }
 }
 
+//deno-lint-ignore no-explicit-any
 export async function marshall<T extends [any, ...any[]]>(
   endian: Endian,
   types: { [P in keyof T]: DbusType<T[P]> },
   values: T,
   output: WritableStreamDefaultWriter<Uint8Array>,
 ): Promise<void> {
+  const ctx = new ParseContext();
+
   for (let n = 0; n < types.length; n++) {
     const t = types[n];
     const v = values[n];
-    await t.marshall(endian, v, output);
+    await t.marshall(endian, v, output, ctx);
   }
 }
 
+//deno-lint-ignore no-explicit-any
 export async function unmarshall<T extends [any, ...any[]]>(
   endian: Endian,
   types: { [P in keyof T]: DbusType<T[P]> },
   input: ReadableStreamBYOBReader,
 ): Promise<T> {
+  const ctx = new ParseContext();
+
   const result = [];
   for (const ty of types) {
-    result.push(await ty.unmarshall(endian, input));
+    result.push(await ty.unmarshall(endian, input, ctx));
   }
   return result as T;
 }

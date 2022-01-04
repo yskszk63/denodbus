@@ -495,8 +495,8 @@ Deno.test("message", async () => {
     0x6c,
     0x6f,
     0x00,
-    0x00,
-    0x00,
+    //0x00, -- Message header's 8byte alignment padding.
+    //0x00,
   ];
   assertEquals(expect, mem.flatMap((v) => Array.from(v)));
 

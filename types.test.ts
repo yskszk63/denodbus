@@ -19,7 +19,7 @@ function memStream(
         const n = Math.min(view.byteLength, mem[0].byteLength);
         const m = mem[0].subarray(0, n);
         mem[0] = mem[0].subarray(n);
-        new Uint8Array(view.buffer).set(m);
+        new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(m);
         controller.byobRequest.respond(n);
       } else {
         const chunk = mem.shift();
@@ -240,7 +240,7 @@ Deno.test("signature", async () => {
   const ty = t.signature();
 
   for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
-    for (const v of ["i"]) {
+    for (const v of ["i", "b"]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
@@ -259,6 +259,24 @@ Deno.test("unix_fd", async () => {
 
   for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
     for (const v of [0, 1, 32, 512, 0xFFFF_FFFF]) {
+      const mem: Uint8Array[] = [];
+      const [r, w] = memStream(mem);
+
+      await ty.marshall(endian, v, w.getWriter());
+      const unmarshalled = await ty.unmarshall(
+        endian,
+        r.getReader({ mode: "byob" }),
+      );
+      assertEquals(unmarshalled, v);
+    }
+  }
+});
+
+Deno.test("variant", async () => {
+  const ty = t.variant();
+
+  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+    for (const v of [[t.byte(), 2]] as [t.DbusType<any>, any][]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
@@ -327,7 +345,10 @@ Deno.test("message", async () => {
   const mem: Uint8Array[] = [];
   const [r, w] = memStream(mem);
 
-  t.marshall(
+  const writer = w.getWriter();
+  const reader = r.getReader({ mode: "byob" });
+
+  await t.marshall(
     t.LITTLE_ENDIAN,
     [
       t.byte(),
@@ -338,7 +359,159 @@ Deno.test("message", async () => {
       t.uint32(),
       t.array(t.struct([t.byte(), t.variant()])),
     ],
-    [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [] as [number, any][]],
-    w.getWriter(),
+    [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [
+      [0x01, [t.objectPath(), "/org/freedesktop/DBus"]],
+      [0x06, [t.string(), "org.freedesktop.DBus"]],
+      [0x02, [t.string(), "org.freedesktop.DBus"]],
+      [0x03, [t.string(), "Hello"]],
+    ] as [number, [t.DbusType<any>, any]][]],
+    writer,
   );
+
+  const expect = [
+    0x6c,
+    0x01,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x6e,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x01,
+    0x6f,
+    0x00,
+    0x15,
+    0x00,
+    0x00,
+    0x00,
+    0x2f,
+    0x6f,
+    0x72,
+    0x67,
+    0x2f,
+    0x66,
+    0x72,
+    0x65,
+    0x65,
+    0x64,
+    0x65,
+    0x73,
+    0x6b,
+    0x74,
+    0x6f,
+    0x70,
+    0x2f,
+    0x44,
+    0x42,
+    0x75,
+    0x73,
+    0x00,
+    0x00,
+    0x00,
+    0x06,
+    0x01,
+    0x73,
+    0x00,
+    0x14,
+    0x00,
+    0x00,
+    0x00,
+    0x6f,
+    0x72,
+    0x67,
+    0x2e,
+    0x66,
+    0x72,
+    0x65,
+    0x65,
+    0x64,
+    0x65,
+    0x73,
+    0x6b,
+    0x74,
+    0x6f,
+    0x70,
+    0x2e,
+    0x44,
+    0x42,
+    0x75,
+    0x73,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x02,
+    0x01,
+    0x73,
+    0x00,
+    0x14,
+    0x00,
+    0x00,
+    0x00,
+    0x6f,
+    0x72,
+    0x67,
+    0x2e,
+    0x66,
+    0x72,
+    0x65,
+    0x65,
+    0x64,
+    0x65,
+    0x73,
+    0x6b,
+    0x74,
+    0x6f,
+    0x70,
+    0x2e,
+    0x44,
+    0x42,
+    0x75,
+    0x73,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x03,
+    0x01,
+    0x73,
+    0x00,
+    0x05,
+    0x00,
+    0x00,
+    0x00,
+    0x48,
+    0x65,
+    0x6c,
+    0x6c,
+    0x6f,
+    0x00,
+    0x00,
+    0x00,
+  ];
+  assertEquals(expect, mem.flatMap((v) => Array.from(v)));
+
+  const result = await t.unmarshall(
+    t.LITTLE_ENDIAN,
+    [
+      t.byte(),
+      t.byte(),
+      t.byte(),
+      t.byte(),
+      t.uint32(),
+      t.uint32(),
+      t.array(t.struct([t.byte(), t.variant()])),
+    ],
+    reader,
+  );
+  console.log(result);
 });

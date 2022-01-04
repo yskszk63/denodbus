@@ -28,7 +28,7 @@ export default function limit(
           return;
         }
         remaining -= result.value.byteLength;
-        controller.byobRequest.respond(result.value.byteLength);
+        controller.byobRequest.respondWithNewView(result.value);
         return;
       }
 

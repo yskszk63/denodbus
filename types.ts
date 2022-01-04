@@ -32,6 +32,26 @@ function convertEndian<V extends Uint8Array | ArrayBuffer>(
   return v;
 }
 
+async function readExact(
+  reader: ReadableStreamBYOBReader,
+  buf: Uint8Array,
+): Promise<Uint8Array> {
+  const off = buf.byteOffset;
+  const len = buf.byteLength;
+  let b = buf;
+  while (b.byteOffset < off + len) {
+    const r = await reader.read(b);
+    if (r.done) {
+      throw new Error("unexpected EOF.");
+    }
+    const value = r.value;
+    const nextOff = value.byteOffset + value.byteLength;
+    const nextLen = len - (nextOff - off);
+    b = new Uint8Array(value.buffer, nextOff, nextLen);
+  }
+  return new Uint8Array(b.buffer, off, len);
+}
+
 async function marshallFixed<T>(
   endian: Endian,
   typedarray: { of: (b: T) => ArrayBufferView },
@@ -51,13 +71,11 @@ async function unmarshallFixed<
   typedarray: (new (b: ArrayBuffer) => V) & { BYTES_PER_ELEMENT: number },
   input: ReadableStreamBYOBReader,
 ): Promise<R> {
-  const result = await input.read(
-    new Uint8Array(new ArrayBuffer(typedarray.BYTES_PER_ELEMENT)),
+  const value = await readExact(
+    input,
+    new Uint8Array(typedarray.BYTES_PER_ELEMENT),
   );
-  if (result.done) {
-    throw new Error("unexpected EOF.");
-  }
-  const buf = new typedarray(convertEndian(endian, result.value.buffer));
+  const buf = new typedarray(convertEndian(endian, value.buffer));
   if (!buf.length) {
     throw new Error();
   }
@@ -67,14 +85,15 @@ async function unmarshallFixed<
 async function marshallText(
   endian: Endian,
   alignment: 1 | 4,
+  lengthType: DbusType<number>,
   text: string,
   out: WritableStreamDefaultWriter<Uint8Array>,
 ): Promise<number> {
   const buf = new TextEncoder().encode(text);
   const len = buf.byteLength;
-  const pad = (alignment - ((len + 1) % alignment) % alignment);
+  const pad = (alignment - ((len + 1) % alignment)) % alignment;
 
-  const n = await marshallFixed(endian, Uint32Array, len, out);
+  const n = await lengthType.marshall(endian, len, out);
   out.write(buf);
   out.write(new Uint8Array(1 + pad));
 
@@ -84,16 +103,13 @@ async function marshallText(
 async function unmarshallText(
   endian: Endian,
   alignment: 1 | 4,
+  lengthType: DbusType<number>,
   input: ReadableStreamBYOBReader,
 ): Promise<string> {
-  const len = await unmarshallFixed(endian, Uint32Array, input) as number;
-  const pad = (alignment - ((len + 1) % alignment) % alignment);
-  const v = new Uint8Array(len + 1 + pad);
-  const result = await input.read(v);
-  if (result.done) {
-    throw new Error("unexpected EOF.");
-  }
-  return new TextDecoder().decode(result.value.subarray(0, len));
+  const len = await lengthType.unmarshall(endian, input);
+  const pad = (alignment - ((len + 1) % alignment)) % alignment;
+  const value = await readExact(input, new Uint8Array(len + 1 + pad));
+  return new TextDecoder().decode(value.subarray(0, len));
 }
 
 export abstract class DbusType<Output> {
@@ -283,11 +299,11 @@ class DbusString extends DbusType<string> {
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
-    return marshallText(endian, 4, val, out);
+    return marshallText(endian, 4, uint32(), val, out);
   }
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 4, input);
+    return unmarshallText(endian, 4, uint32(), input);
   }
 
   signature(): string {
@@ -301,11 +317,11 @@ class DbusObjectPath extends DbusType<string> {
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
-    return marshallText(endian, 4, val, out);
+    return marshallText(endian, 4, uint32(), val, out);
   }
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 4, input);
+    return unmarshallText(endian, 4, uint32(), input);
   }
 
   signature(): string {
@@ -319,11 +335,11 @@ class DbusSignature extends DbusType<string> {
     val: string,
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
-    return marshallText(endian, 1, val, out);
+    return marshallText(endian, 1, byte(), val, out);
   }
 
   unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<string> {
-    return unmarshallText(endian, 1, input);
+    return unmarshallText(endian, 1, byte(), input);
   }
 
   signature(): string {
@@ -391,16 +407,27 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
     this.items = items;
   }
 
-  marshall(
+  async marshall(
     endian: Endian,
     val: T,
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
-    throw new Error("not implemented.");
+    let len = 0;
+    for (let i = 0; i < this.items.length; i++) {
+      len += await this.items[i].marshall(endian, val[i], out);
+    }
+    return len;
   }
 
-  unmarshall(endian: Endian, input: ReadableStreamBYOBReader): Promise<T> {
-    throw new Error("not implemented.");
+  async unmarshall(
+    endian: Endian,
+    input: ReadableStreamBYOBReader,
+  ): Promise<T> {
+    let result = [];
+    for (let i = 0; i < this.items.length; i++) {
+      result.push(await this.items[i].unmarshall(endian, input));
+    }
+    return result as T;
   }
 
   signature(): string {
@@ -410,19 +437,24 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
 
 //deno-lint-ignore no-explicit-any
 class DbusVariant extends DbusType<[DbusType<any>, any]> {
-  marshall(
+  async marshall(
     endian: Endian,
     [ty, val]: [DbusType<any>, any],
     out: WritableStreamDefaultWriter<Uint8Array>,
   ): Promise<number> {
-    throw new Error("not implemented.");
+    let n = await signature().marshall(endian, ty.signature(), out);
+    n += await ty.marshall(endian, val, out);
+    // TODO alignment?
+    return n;
   }
 
-  unmarshall(
+  async unmarshall(
     endian: Endian,
     input: ReadableStreamBYOBReader,
   ): Promise<[DbusType<any>, any]> {
-    throw new Error("not implemented.");
+    const ty = parseSignature(await signature().unmarshall(endian, input));
+    const val = await ty.unmarshall(endian, input);
+    return [ty, val];
   }
 
   signature(): string {
@@ -618,8 +650,9 @@ export function parseSignature(
       }
       return dictEntry(key, val);
     }
+    default:
+      throw new Error(`${sig} ${h}`);
   }
-  throw new Error();
 }
 
 export async function marshall<T extends [any, ...any[]]>(

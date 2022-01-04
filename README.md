@@ -8,4 +8,4 @@ This project is WORK IN PROGRESS.
 
 ## License
 
-[MIT](License)
+[MIT](LICENSE)

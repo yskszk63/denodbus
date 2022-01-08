@@ -2,7 +2,7 @@
 import { assertEquals } from "https://deno.land/std@0.118.0/testing/asserts.ts";
 
 import * as t from "./types.ts";
-import { BIG_ENDIAN, LITTLE_ENDIAN, Endian } from "./endian.ts";
+import { BIG_ENDIAN, Endian, LITTLE_ENDIAN } from "./endian.ts";
 
 function memStream(
   mem: Uint8Array[],

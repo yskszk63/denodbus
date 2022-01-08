@@ -1,4 +1,4 @@
-import * as endian from './endian.ts';
+import * as endian from "./endian.ts";
 
 class ParseContext {
   pos: number;

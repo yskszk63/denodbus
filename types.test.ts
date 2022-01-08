@@ -277,7 +277,7 @@ Deno.test("variant", async () => {
   const ty = t.variant();
 
   for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
-    for (const v of [[t.byte(), 2]] as [t.DbusType<any>, any][]) {
+    for (const v of [new t.Variant(t.byte(), 2)]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
@@ -361,11 +361,11 @@ Deno.test("message", async () => {
       t.array(t.struct([t.byte(), t.variant()])),
     ],
     [0x6c, 0x01, 0x00, 0x01, 0x00, 0x01, [
-      [0x01, [t.objectPath(), "/org/freedesktop/DBus"]],
-      [0x06, [t.string(), "org.freedesktop.DBus"]],
-      [0x02, [t.string(), "org.freedesktop.DBus"]],
-      [0x03, [t.string(), "Hello"]],
-    ] as [number, [t.DbusType<any>, any]][]],
+      [0x01, new t.Variant(t.objectPath(), "/org/freedesktop/DBus")],
+      [0x06, new t.Variant(t.string(), "org.freedesktop.DBus")],
+      [0x02, new t.Variant(t.string(), "org.freedesktop.DBus")],
+      [0x03, new t.Variant(t.string(), "Hello")],
+    ]],
     writer,
   );
 

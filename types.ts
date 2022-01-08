@@ -1,5 +1,18 @@
 import * as endian from "./endian.ts";
 
+export class Variant<T> {
+  type: DbusType<T>;
+  value: T;
+
+  constructor(
+    type: DbusType<T>,
+    value: T,
+  ) {
+    this.type = type;
+    this.value = value;
+  }
+}
+
 class ParseContext {
   pos: number;
   constructor() {
@@ -646,11 +659,11 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
 }
 
 //deno-lint-ignore no-explicit-any
-class DbusVariant extends DbusType<[DbusType<any>, any]> {
+class DbusVariant extends DbusType<Variant<any>> {
   async marshall(
     endian: endian.Endian,
     //deno-lint-ignore no-explicit-any
-    [ty, val]: [DbusType<any>, any],
+    { type: ty, value: val }: Variant<any>,
     out: WritableStreamDefaultWriter<Uint8Array>,
     ctx?: ParseContext,
   ): Promise<void> {
@@ -665,12 +678,12 @@ class DbusVariant extends DbusType<[DbusType<any>, any]> {
     input: ReadableStreamBYOBReader,
     ctx?: ParseContext,
     //deno-lint-ignore no-explicit-any
-  ): Promise<[DbusType<any>, any]> {
+  ): Promise<Variant<any>> {
     ctx = ctx ?? new ParseContext();
 
     const ty = parseSignature(await signature().unmarshall(endian, input, ctx));
     const val = await ty.unmarshall(endian, input, ctx);
-    return [ty, val];
+    return new Variant(ty, val);
   }
 
   signature(): string {

@@ -2,6 +2,7 @@
 import { assertEquals } from "https://deno.land/std@0.118.0/testing/asserts.ts";
 
 import * as t from "./types.ts";
+import { BIG_ENDIAN, LITTLE_ENDIAN, Endian } from "./endian.ts";
 
 function memStream(
   mem: Uint8Array[],
@@ -41,7 +42,7 @@ function memStream(
 Deno.test("byte", async () => {
   const ty = t.byte();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 192, 255]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -59,7 +60,7 @@ Deno.test("byte", async () => {
 Deno.test("boolean", async () => {
   const ty = t.boolean();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [true, false]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -77,7 +78,7 @@ Deno.test("boolean", async () => {
 Deno.test("int16", async () => {
   const ty = t.int16();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 32, 512, -512, 0x7FFF]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -95,7 +96,7 @@ Deno.test("int16", async () => {
 Deno.test("uint16", async () => {
   const ty = t.uint16();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 32, 512, 0x7FFF]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -113,7 +114,7 @@ Deno.test("uint16", async () => {
 Deno.test("int32", async () => {
   const ty = t.int32();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 32, 512, -512, 0x7FFF_FFFF]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -131,7 +132,7 @@ Deno.test("int32", async () => {
 Deno.test("uint32", async () => {
   const ty = t.uint32();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 32, 512, 0xFFFF_FFFF]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -149,7 +150,7 @@ Deno.test("uint32", async () => {
 Deno.test("int64", async () => {
   const ty = t.int64();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0n, 1n, 32n, 512n, -512n, 0x7FFF_FFFF_FFFF_FFFFn]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -167,7 +168,7 @@ Deno.test("int64", async () => {
 Deno.test("uint64", async () => {
   const ty = t.uint64();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0n, 1n, 32n, 512n, 0x7FFF_FFFF_FFFF_FFFFn]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -185,7 +186,7 @@ Deno.test("uint64", async () => {
 Deno.test("double", async () => {
   const ty = t.double();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0.1, 0.3]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -203,7 +204,7 @@ Deno.test("double", async () => {
 Deno.test("string", async () => {
   const ty = t.string();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of ["", "Hello, World!"]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -221,7 +222,7 @@ Deno.test("string", async () => {
 Deno.test("object_path", async () => {
   const ty = t.objectPath();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of ["/obj/path"]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -239,7 +240,7 @@ Deno.test("object_path", async () => {
 Deno.test("signature", async () => {
   const ty = t.signature();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of ["i", "b"]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -257,7 +258,7 @@ Deno.test("signature", async () => {
 Deno.test("unix_fd", async () => {
   const ty = t.unixFd();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [0, 1, 32, 512, 0xFFFF_FFFF]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -275,7 +276,7 @@ Deno.test("unix_fd", async () => {
 Deno.test("variant", async () => {
   const ty = t.variant();
 
-  for (const endian of [t.BIG_ENDIAN, t.LITTLE_ENDIAN] as t.Endian[]) {
+  for (const endian of [BIG_ENDIAN, LITTLE_ENDIAN] as Endian[]) {
     for (const v of [[t.byte(), 2]] as [t.DbusType<any>, any][]) {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
@@ -349,7 +350,7 @@ Deno.test("message", async () => {
   const reader = r.getReader({ mode: "byob" });
 
   await t.marshall(
-    t.LITTLE_ENDIAN,
+    LITTLE_ENDIAN,
     [
       t.byte(),
       t.byte(),
@@ -501,7 +502,7 @@ Deno.test("message", async () => {
   assertEquals(expect, mem.flatMap((v) => Array.from(v)));
 
   const result = await t.unmarshall(
-    t.LITTLE_ENDIAN,
+    LITTLE_ENDIAN,
     [
       t.byte(),
       t.byte(),

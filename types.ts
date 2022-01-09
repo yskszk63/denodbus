@@ -555,33 +555,6 @@ export function parseSignature(
   }
 }
 
-// TODO remove
-//deno-lint-ignore no-explicit-any
-export async function marshall<T extends [any, ...any[]]>(
-  ctx: MarshallContext,
-  types: { [P in keyof T]: DbusType<T[P]> },
-  values: T,
-): Promise<void> {
-  for (let n = 0; n < types.length; n++) {
-    const t = types[n];
-    const v = values[n];
-    await t.marshall(ctx, v);
-  }
-}
-
-// TODO remove
-//deno-lint-ignore no-explicit-any
-export async function unmarshall<T extends [any, ...any[]]>(
-  ctx: UnmarshallContext,
-  types: { [P in keyof T]: DbusType<T[P]> },
-): Promise<T> {
-  const result = [];
-  for (const ty of types) {
-    result.push(await ty.unmarshall(ctx));
-  }
-  return result as T;
-}
-
 // ----
 /*
 const X = struct([string(), array(byte())]);

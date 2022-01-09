@@ -56,7 +56,7 @@ async function loop(
   signal: AbortSignal,
 ): Promise<void> {
   const aborted = new Promise<Message>((_, reject) => {
-    signal.addEventListener('abort', () => reject(new Error("aborted.")));
+    signal.addEventListener("abort", () => reject(new Error("aborted.")));
   });
 
   try {
@@ -73,7 +73,6 @@ async function loop(
       console.log("*", message);
     }
   } catch (e) {
-    console.error("ERR", e);
     throw e;
   } finally {
     await stream.cancel();
@@ -87,6 +86,7 @@ export class Client {
   #loopError: Promise<void>;
   #serial: number;
   #abort: AbortController;
+  #closed: boolean;
 
   static async connect(addr: string): Promise<Client> {
     const a = parseAddress(addr);
@@ -152,9 +152,16 @@ export class Client {
     this.#loopError = loopError;
     this.#serial = 1;
     this.#abort = abort;
+    this.#closed = false;
   }
 
   async close() {
+    this.#closed = true;
+    for (const val of this.#waiters.values()) {
+      val.reject(new Error("closed."));
+    }
+    this.#waiters.clear();
+
     this.#abort.abort();
     await this.#writable.abort();
   }
@@ -166,6 +173,10 @@ export class Client {
     member: string,
     val: types.Variant<any>[],
   ): Promise<void> {
+    if (this.#closed) {
+      throw new Error("closed.");
+    }
+
     const serial = this.#serial++;
     const deferred = new Deferred<Message>();
     this.#waiters.set(serial, deferred);
@@ -234,6 +245,9 @@ async function connectUnix(
         chunk = chunk.subarray(n);
       }
     },
+    async abort() {
+      await conn.closeWrite();
+    },
   });
   const r = new ReadableStream({
     async pull(controller) {
@@ -257,6 +271,9 @@ async function connectUnix(
       } else {
         controller.enqueue(buf.subarray(0, n));
       }
+    },
+    cancel() {
+      conn.close();
     },
     type: "bytes",
   });

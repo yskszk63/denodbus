@@ -41,7 +41,7 @@ function memStream(
   return [r, w];
 }
 
-Deno.test('marshall', async () => {
+Deno.test("marshall", async () => {
   const mem = [] as Uint8Array[];
   const [r, w] = memStream(mem);
 
@@ -62,7 +62,7 @@ Deno.test('marshall', async () => {
   await message.marshall(w.getWriter());
   // TODO assert
 
-  const result = await Message.unmarshall(r.getReader({mode:'byob'}));
+  const result = await Message.unmarshall(r.getReader({ mode: "byob" }));
   console.log(result);
   // TODO assert
 });

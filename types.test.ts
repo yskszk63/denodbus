@@ -2,6 +2,7 @@
 import { assertEquals } from "https://deno.land/std@0.118.0/testing/asserts.ts";
 
 import * as t from "./types.ts";
+import { MarshallContext, UnmarshallContext } from "./marshall.ts";
 import { BIG_ENDIAN, Endian, LITTLE_ENDIAN } from "./endian.ts";
 
 function memStream(
@@ -47,10 +48,9 @@ Deno.test("byte", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -65,10 +65,9 @@ Deno.test("boolean", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -83,10 +82,9 @@ Deno.test("int16", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -101,10 +99,9 @@ Deno.test("uint16", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -119,10 +116,9 @@ Deno.test("int32", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -137,10 +133,9 @@ Deno.test("uint32", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -155,10 +150,9 @@ Deno.test("int64", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -173,10 +167,9 @@ Deno.test("uint64", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -191,10 +184,9 @@ Deno.test("double", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -209,10 +201,9 @@ Deno.test("string", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -227,10 +218,9 @@ Deno.test("object_path", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -245,10 +235,9 @@ Deno.test("signature", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -263,10 +252,9 @@ Deno.test("unix_fd", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -281,10 +269,9 @@ Deno.test("variant", async () => {
       const mem: Uint8Array[] = [];
       const [r, w] = memStream(mem);
 
-      await ty.marshall(endian, v, w.getWriter());
+      await ty.marshall(new MarshallContext(w, endian), v);
       const unmarshalled = await ty.unmarshall(
-        endian,
-        r.getReader({ mode: "byob" }),
+        new UnmarshallContext(r, endian),
       );
       assertEquals(unmarshalled, v);
     }
@@ -346,11 +333,8 @@ Deno.test("message", async () => {
   const mem: Uint8Array[] = [];
   const [r, w] = memStream(mem);
 
-  const writer = w.getWriter();
-  const reader = r.getReader({ mode: "byob" });
-
   await t.marshall(
-    LITTLE_ENDIAN,
+    new MarshallContext(w),
     [
       t.byte(),
       t.byte(),
@@ -366,7 +350,6 @@ Deno.test("message", async () => {
       [0x02, new t.Variant(t.string(), "org.freedesktop.DBus")],
       [0x03, new t.Variant(t.string(), "Hello")],
     ]],
-    writer,
   );
 
   const expect = [
@@ -502,7 +485,7 @@ Deno.test("message", async () => {
   assertEquals(expect, mem.flatMap((v) => Array.from(v)));
 
   const result = await t.unmarshall(
-    LITTLE_ENDIAN,
+    new UnmarshallContext(r),
     [
       t.byte(),
       t.byte(),
@@ -512,7 +495,6 @@ Deno.test("message", async () => {
       t.uint32(),
       t.array(t.struct([t.byte(), t.variant()])),
     ],
-    reader,
   );
   console.log(result);
 });

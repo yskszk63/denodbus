@@ -1,6 +1,9 @@
 import * as auth from "./auth.ts";
 import * as types from "./types.ts";
 import { getuid } from "./getuid.ts";
+import { Message } from "./message.ts";
+import * as m from "./message.ts";
+import { LITTLE_ENDIAN } from "./endian.ts";
 
 class Deferred<T> {
   #resolve: ((msg: T) => void) | null;
@@ -48,64 +51,88 @@ class Deferred<T> {
 }
 
 async function loop(
-  waiters: Map<number, Deferred<unknown>>,
-  readable: ReadableStreamBYOBReader,
+  waiters: Map<number, Deferred<Message>>,
+  stream: ReadableStream,
 ): Promise<never> {
-  const tyendian = types.byte();
-
   while (true) {
-    const endian = await tyendian.unmarshall(types.LITTLE_ENDIAN, readable);
-    console.log(endian);
-    throw new Error("not implemented.");
+    try {
+      const message = await Message.unmarshall(stream);
+
+      // TODO if method_return
+      const replySerial = message.headers.get(m.REPLY_SERIAL);
+      if (replySerial && typeof replySerial.value === "number") {
+        const deferred = waiters.get(replySerial.value);
+        waiters.delete(replySerial.value);
+        deferred?.resolve(message);
+      }
+      console.log("*", message);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
   }
 }
 
 export class Client {
   #guid: Uint8Array;
   #writable: WritableStream<Uint8Array>;
-  #waiters: Map<number, Deferred<unknown>>;
+  #waiters: Map<number, Deferred<Message>>;
   #loopError: Promise<never>;
+  #serial: number;
 
   static async connect(addr: string): Promise<Client> {
     const a = parseAddress(addr);
     const [w, r] = await connect(a);
 
+    let guid;
     const writer = w.getWriter();
     try {
       const reader = r.getReader({ mode: "byob" });
+      try {
+        await writer.write(Uint8Array.of(0));
+        const uid = String(getuid());
+        await auth.send({
+          command: "AUTH",
+          mechanism: "EXTERNAL",
+          initialResponse: uid,
+        }, writer);
+        const maybeOk = await auth.recv(reader);
+        if (maybeOk.command !== "OK") {
+          throw new Error(JSON.stringify(maybeOk));
+        }
+        guid = maybeOk.guid;
 
-      await writer.write(Uint8Array.of(0));
-      const uid = String(getuid());
-      await auth.send({
-        command: "AUTH",
-        mechanism: "EXTERNAL",
-        initialResponse: uid,
-      }, writer);
-      const maybeOk = await auth.recv(reader);
-      if (maybeOk.command !== "OK") {
-        throw new Error(JSON.stringify(maybeOk));
+        await auth.send({ command: "NEGOTIATE_UNIX_FD" }, writer);
+        const msg = await auth.recv(reader);
+        if (msg.command !== "AGREE_UNIX_FD") {
+          throw new Error();
+        }
+
+        await auth.send({ command: "BEGIN" }, writer);
+      } finally {
+        reader.releaseLock();
       }
-      const guid = maybeOk.guid;
-
-      await auth.send({ command: "NEGOTIATE_UNIX_FD" }, writer);
-      const msg = await auth.recv(reader);
-      if (msg.command !== "AGREE_UNIX_FD") {
-        throw new Error();
-      }
-
-      await auth.send({ command: "BEGIN" }, writer);
-
-      const waiters = new Map();
-      const loopError = loop(waiters, reader);
-      return new Client(w, waiters, loopError, guid);
     } finally {
       writer.releaseLock();
     }
+
+    const waiters = new Map();
+    const loopError = loop(waiters, r);
+    const client = new Client(w, waiters, loopError, guid);
+    const reply = await client.request(
+      "/org/freedesktop/DBus",
+      "org.freedesktop.DBus",
+      "org.freedesktop.DBus",
+      "Hello",
+      [],
+    );
+    console.log(reply); // TODO check
+    return client;
   }
 
   constructor(
     w: WritableStream<Uint8Array>,
-    waiters: Map<number, Deferred<unknown>>,
+    waiters: Map<number, Deferred<Message>>,
     loopError: Promise<never>,
     guid: Uint8Array,
   ) {
@@ -113,6 +140,37 @@ export class Client {
     this.#guid = guid;
     this.#waiters = waiters;
     this.#loopError = loopError;
+    this.#serial = 1;
+  }
+
+  async request(
+    path: string,
+    destination: string,
+    iface: string,
+    member: string,
+    val: types.Variant<any>[],
+  ): Promise<void> {
+    const serial = this.#serial++;
+    const deferred = new Deferred<Message>();
+    this.#waiters.set(serial, deferred);
+
+    const message = new Message(
+      LITTLE_ENDIAN,
+      m.METHOD_CALL,
+      new Set(),
+      1,
+      serial,
+      new Map([
+        [m.PATH, new types.Variant(types.objectPath(), path)],
+        [m.DESTINATION, new types.Variant(types.string(), destination)],
+        [m.INTERFACE, new types.Variant(types.string(), iface)],
+        [m.MEMBER, new types.Variant(types.string(), member)],
+      ]),
+      val,
+    );
+    await message.marshall(this.#writable);
+    const reply = await deferred.promise;
+    console.log(reply);
   }
 }
 
@@ -153,16 +211,20 @@ async function connectUnix(
   const path = addr.path ? addr.path : `\0${addr.abstract}`;
   const conn = await Deno.connect({ transport: "unix", path });
 
-  const w = new WritableStream({
+  const w = new WritableStream<Uint8Array>({
     async write(chunk) {
-      await conn.write(chunk);
+      while (chunk.length) {
+        const n = await conn.write(chunk);
+        chunk = chunk.subarray(n);
+      }
     },
   });
   const r = new ReadableStream({
     async pull(controller) {
-      if (controller.byobRequest && controller.byobRequest.view) {
+      if (controller.byobRequest?.view) {
+        const view = controller.byobRequest.view;
         const n = await conn.read(
-          new Uint8Array(controller.byobRequest.view.buffer),
+          new Uint8Array(view.buffer, view.byteOffset, view.byteLength),
         );
         if (n === null) {
           controller.close();

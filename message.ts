@@ -202,6 +202,7 @@ export class Message {
     this.serial = serial;
     this.headers = headers;
     this.body = body;
+    // TODO signature
   }
 
   async marshall(stream: WritableStream<Uint8Array>): Promise<void> {
@@ -255,7 +256,7 @@ export class Message {
         new Map(a.map(checkHeader))
       );
 
-      ctx.align(8);
+      await ctx.align(8);
       const body = await unmarshallBody(ctx, bodyLength, headers);
       return new Message(
         endian,

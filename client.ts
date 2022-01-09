@@ -53,10 +53,15 @@ class Deferred<T> {
 async function loop(
   waiters: Map<number, Deferred<Message>>,
   stream: ReadableStream,
-): Promise<never> {
-  while (true) {
-    try {
-      const message = await Message.unmarshall(stream);
+  signal: AbortSignal,
+): Promise<void> {
+  const aborted = new Promise<Message>((_, reject) => {
+    signal.addEventListener('abort', () => reject(new Error("aborted.")));
+  });
+
+  try {
+    while (!signal.aborted) {
+      const message = await Promise.race([Message.unmarshall(stream), aborted]);
 
       // TODO if method_return
       const replySerial = message.headers.get(m.REPLY_SERIAL);
@@ -66,10 +71,12 @@ async function loop(
         deferred?.resolve(message);
       }
       console.log("*", message);
-    } catch (e) {
-      console.error(e);
-      throw e;
     }
+  } catch (e) {
+    console.error("ERR", e);
+    throw e;
+  } finally {
+    await stream.cancel();
   }
 }
 
@@ -77,8 +84,9 @@ export class Client {
   #guid: Uint8Array;
   #writable: WritableStream<Uint8Array>;
   #waiters: Map<number, Deferred<Message>>;
-  #loopError: Promise<never>;
+  #loopError: Promise<void>;
   #serial: number;
+  #abort: AbortController;
 
   static async connect(addr: string): Promise<Client> {
     const a = parseAddress(addr);
@@ -117,8 +125,9 @@ export class Client {
     }
 
     const waiters = new Map();
-    const loopError = loop(waiters, r);
-    const client = new Client(w, waiters, loopError, guid);
+    const abort = new AbortController();
+    const loopError = loop(waiters, r, abort.signal);
+    const client = new Client(w, waiters, loopError, guid, abort);
     const reply = await client.request(
       "/org/freedesktop/DBus",
       "org.freedesktop.DBus",
@@ -133,14 +142,21 @@ export class Client {
   constructor(
     w: WritableStream<Uint8Array>,
     waiters: Map<number, Deferred<Message>>,
-    loopError: Promise<never>,
+    loopError: Promise<void>,
     guid: Uint8Array,
+    abort: AbortController,
   ) {
     this.#writable = w;
     this.#guid = guid;
     this.#waiters = waiters;
     this.#loopError = loopError;
     this.#serial = 1;
+    this.#abort = abort;
+  }
+
+  async close() {
+    this.#abort.abort();
+    await this.#writable.abort();
   }
 
   async request(
@@ -169,8 +185,8 @@ export class Client {
       val,
     );
     await message.marshall(this.#writable);
-    const reply = await deferred.promise;
-    console.log(reply);
+    const reply = await Promise.race([deferred.promise, this.#loopError]);
+    console.log("#", reply);
   }
 }
 

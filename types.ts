@@ -367,17 +367,22 @@ class DbusDictEntry<K, V> extends DbusType<[K, V]> {
     this.val = val;
   }
 
-  marshall(
+  async marshall(
     ctx: MarshallContext,
-    val: [K, V],
+    [key, val]: [K, V],
   ): Promise<void> {
-    throw new Error("not implemented.");
+    await ctx.align(8);
+    await this.key.marshall(ctx, key);
+    await this.val.marshall(ctx, val);
   }
 
-  unmarshall(
+  async unmarshall(
     ctx: UnmarshallContext,
   ): Promise<[K, V]> {
-    throw new Error("not implemented.");
+    await ctx.align(8);
+    const key = await this.key.unmarshall(ctx);
+    const val = await this.val.unmarshall(ctx);
+    return [key, val];
   }
 
   signature(): string {

@@ -51,12 +51,12 @@ Deno.test("marshall", async () => {
     new Set(),
     1,
     1,
-    [
+    new Map([
       [m.PATH, new t.Variant(t.objectPath(), "/org/freedesktop/DBus")],
       [m.DESTINATION, new t.Variant(t.string(), "org.freedesktop.DBus")],
       [m.INTERFACE, new t.Variant(t.string(), "org.freedesktop.DBus")],
       [m.MEMBER, new t.Variant(t.string(), "Hello")],
-    ],
+    ]),
     [],
   );
   await message.marshall(w);

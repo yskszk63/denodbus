@@ -15,7 +15,7 @@ export class MarshallContext {
     this.writer.releaseLock();
   }
 
-  async alignWrite(
+  async align(
     alignment: number,
   ): Promise<void> {
     const pad = (alignment - ((this.pos) % alignment)) % alignment;
@@ -28,7 +28,7 @@ export class MarshallContext {
     alignment: number | null,
   ): Promise<void> {
     if (alignment) {
-      await this.alignWrite(alignment);
+      await this.align(alignment);
     }
 
     const len = buf.byteLength;
@@ -104,7 +104,7 @@ export class UnmarshallContext {
     this.reader.releaseLock();
   }
 
-  async alignRead(
+  async align(
     alignment: number,
   ): Promise<void> {
     const pad = (alignment - ((this.pos) % alignment)) % alignment;
@@ -124,7 +124,7 @@ export class UnmarshallContext {
     alignment: number | null,
   ): Promise<Uint8Array> {
     if (alignment) {
-      await this.alignRead(alignment);
+      await this.align(alignment);
     }
 
     const off = buf.byteOffset;

@@ -309,7 +309,7 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
     ctx: MarshallContext,
     val: T,
   ): Promise<void> {
-    await ctx.alignWrite(8);
+    await ctx.align(8);
 
     for (let i = 0; i < this.items.length; i++) {
       await this.items[i].marshall(ctx, val[i]);
@@ -319,7 +319,7 @@ class DbusStruct<T extends [any, ...any]> extends DbusType<T> {
   async unmarshall(
     ctx: UnmarshallContext,
   ): Promise<T> {
-    await ctx.alignRead(8);
+    await ctx.align(8);
 
     const result = [];
     for (let i = 0; i < this.items.length; i++) {

@@ -59,10 +59,10 @@ Deno.test("marshall", async () => {
     ],
     [],
   );
-  await message.marshall(w.getWriter());
+  await message.marshall(w);
   // TODO assert
 
-  const result = await Message.unmarshall(r.getReader({ mode: "byob" }));
+  const result = await Message.unmarshall(r);
   console.log(result);
   // TODO assert
 });
